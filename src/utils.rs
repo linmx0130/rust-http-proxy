@@ -1,12 +1,13 @@
 use bytes::Bytes;
+use indoc::indoc;
 
 #[derive(Debug)]
 pub struct HTTPRequest {
-    method: String,
-    path: String,
-    protocol: String,
-    headers: Vec<(String, String)>,
-    body: Bytes
+    pub method: String,
+    pub path: String,
+    pub protocol: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Bytes
 }
 
 impl HTTPRequest {
@@ -17,6 +18,43 @@ impl HTTPRequest {
             }
         }
         None
+    }
+}
+
+#[derive(Debug)]
+pub struct HTTPResponse {
+    pub status_code: u32,
+    pub body: String
+}
+
+impl HTTPResponse{
+    fn get_status_description(&self) -> &str{
+        match self.status_code {
+            501 => "501 Not Implemented",
+            _ => panic!("Status code {} not supported", self.status_code)
+        }
+    }
+    fn get_header_text(&self) -> String{
+        let mut lines: Vec<String> = Vec::new();
+        lines.push(format!("HTTP/1.1 {}", self.get_status_description()));
+        lines.push(format!("Status: {}", self.get_status_description()));
+        lines.push(String::from("Connection: Close"));
+        lines.join("\r\n").to_string()
+    }
+    pub fn build_message(&self) -> String{
+        let mut ret = String::from(self.get_header_text());
+        ret.push_str("\r\n\r\n");
+        ret.push_str(&self.body);
+        ret
+    }
+    pub fn create_501_error() -> Self {
+        HTTPResponse{
+            status_code: 501,
+            body: String::from(indoc! {"
+                <html><body><h1>501 Not Implemented</h1>
+                <p>This proxy doesn't support this protocol.</p></body></html>\n"
+            })
+        }
     }
 }
 

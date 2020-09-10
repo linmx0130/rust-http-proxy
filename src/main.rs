@@ -1,6 +1,8 @@
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use url::{Url};
 mod utils;
+use utils::{HTTPResponse};
 
 #[tokio::main]
 async fn main() {
@@ -22,6 +24,19 @@ async fn process(mut socket: TcpStream){
     let n = socket.read(&mut buffer[..]).await.unwrap();
     println!("Received {} byte", n);
     let http_request = utils::parse_http_request(&buffer, n).unwrap();
-    let host = http_request.get_header_value("Host").unwrap();
-    println!("{}", host);
+    if http_request.path.starts_with("http://") {
+        let path_url = Url::parse(&http_request.path).unwrap();
+        println!("{:?}", path_url);
+        send_501_error(&mut socket).await;
+    } else{
+        println!("{:?}", http_request);
+        send_501_error(&mut socket).await;
+    }
+}
+
+async fn send_501_error(socket: &mut TcpStream) {
+    let http_response_content = HTTPResponse::create_501_error().build_message();
+    if let Err(err) = socket.write(http_response_content.as_bytes()).await{
+        panic!(err);
+    }
 }
