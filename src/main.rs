@@ -1,8 +1,9 @@
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use url::{Url};
 mod utils;
-use utils::{HTTPResponse};
+mod request;
+mod response;
+use response::{HTTPResponse};
 
 #[tokio::main]
 async fn main() {
@@ -20,23 +21,25 @@ async fn main_loop() {
 }
 
 async fn process(mut socket: TcpStream){
-    let mut buffer: [u8;512] = [0; 512];
+    let mut buffer: [u8;4096] = [0; 4096];
     let n = socket.read(&mut buffer[..]).await.unwrap();
-    println!("Received {} byte", n);
     let http_request = utils::parse_http_request(&buffer, n).unwrap();
     if http_request.path.starts_with("http://") {
-        let path_url = Url::parse(&http_request.path).unwrap();
-        println!("{:?}", path_url);
-        send_501_error(&mut socket).await;
+        let new_request = http_request.build_request_for_proxy();
+        if let Some(resp) = utils::do_request(new_request).await {
+            socket.write(&resp.build_message()).await.unwrap();
+            println!("Forwarded {}", http_request.path);
+        }
+        
     } else{
-        println!("{:?}", http_request);
+        println!("Unknown request: {:?}", http_request);
         send_501_error(&mut socket).await;
     }
 }
 
 async fn send_501_error(socket: &mut TcpStream) {
     let http_response_content = HTTPResponse::create_501_error().build_message();
-    if let Err(err) = socket.write(http_response_content.as_bytes()).await{
+    if let Err(err) = socket.write(&http_response_content).await{
         panic!(err);
     }
 }

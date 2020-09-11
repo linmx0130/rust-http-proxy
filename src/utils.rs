@@ -1,62 +1,10 @@
-use bytes::Bytes;
-use indoc::indoc;
+use bytes::{Bytes, Buf, BytesMut, BufMut};
+use tokio::net::{TcpStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use crate::request::{HTTPRequest};
+use crate::response::{HTTPResponse};
 
-#[derive(Debug)]
-pub struct HTTPRequest {
-    pub method: String,
-    pub path: String,
-    pub protocol: String,
-    pub headers: Vec<(String, String)>,
-    pub body: Bytes
-}
-
-impl HTTPRequest {
-    pub fn get_header_value<'a> (&'a self, key: &str) -> Option<&'a str>{
-        for (k, v) in &self.headers {
-            if k == key{
-                return Some(v.as_ref())
-            }
-        }
-        None
-    }
-}
-
-#[derive(Debug)]
-pub struct HTTPResponse {
-    pub status_code: u32,
-    pub body: String
-}
-
-impl HTTPResponse{
-    fn get_status_description(&self) -> &str{
-        match self.status_code {
-            501 => "501 Not Implemented",
-            _ => panic!("Status code {} not supported", self.status_code)
-        }
-    }
-    fn get_header_text(&self) -> String{
-        let mut lines: Vec<String> = Vec::new();
-        lines.push(format!("HTTP/1.1 {}", self.get_status_description()));
-        lines.push(format!("Status: {}", self.get_status_description()));
-        lines.push(String::from("Connection: Close"));
-        lines.join("\r\n").to_string()
-    }
-    pub fn build_message(&self) -> String{
-        let mut ret = String::from(self.get_header_text());
-        ret.push_str("\r\n\r\n");
-        ret.push_str(&self.body);
-        ret
-    }
-    pub fn create_501_error() -> Self {
-        HTTPResponse{
-            status_code: 501,
-            body: String::from(indoc! {"
-                <html><body><h1>501 Not Implemented</h1>
-                <p>This proxy doesn't support this protocol.</p></body></html>\n"
-            })
-        }
-    }
-}
+type ChunkedBuffer = [u8;4096];
 
 pub fn parse_http_request(data: &[u8], n: usize) -> Option<HTTPRequest> { 
     let bufs = String::from_utf8(data[..n].to_vec()).unwrap();
@@ -89,4 +37,58 @@ pub fn parse_http_request(data: &[u8], n: usize) -> Option<HTTPRequest> {
         }
     }
     None
+}
+
+pub async fn do_request(request: HTTPRequest) -> Option<HTTPResponse> {
+    let host = request.get_header_value("Host").unwrap();
+    if let Some(addr) = lookup_an_address(host).await {
+        let mut socket = TcpStream::connect(addr).await.unwrap();
+        let msg = request.build_message();
+        if let Err(err) = socket.write(&msg).await {
+            println!("{:?}", err);
+            return None;
+        };
+        read_http_response(&mut socket).await
+    } else {
+        None
+    }
+}
+
+async fn lookup_an_address(host: &str) -> Option<std::net::SocketAddr>{
+    let full_host = if let Some(_) = host.find(":") {
+        String::from(host)
+    } else {
+        format!("{}:80", host)
+    };
+    let mut addrs = tokio::net::lookup_host(full_host).await.unwrap();
+    if let Some(addr) = addrs.next() {
+        Some(addr)
+    } else {
+        None
+    }
+}
+
+async fn read_http_response(socket: &mut TcpStream) -> Option<HTTPResponse> {
+    let mut body_buffer = BytesMut::new();
+    loop {
+        let mut buffer: ChunkedBuffer = [0; 4096];
+        let c_size_option = socket.read(&mut buffer).await;
+        if let Ok(c_size) = c_size_option {
+            body_buffer.put(&buffer[..c_size]);
+            let resp_parsed = HTTPResponse::parse_message(&body_buffer.clone().to_bytes());
+            if let Some(resp) = resp_parsed {
+                if let Some(size_str) = &resp.get_header_value("Content-Length") {
+                    if size_str.parse::<usize>().unwrap() == resp.body.len() {
+                        return Some(resp);
+                    }
+                }
+            }
+            if c_size == 0 {
+                break;
+            }
+        } else{
+            break;
+        }
+    };
+    HTTPResponse::parse_message(&body_buffer.to_bytes())
 }
