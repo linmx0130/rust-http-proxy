@@ -42,16 +42,20 @@ impl HTTPRequest {
                 None => String::from(path_url.path())
             };
             let mut headers = Vec::new();
-            headers.push((String::from("Host"), String::from(path_url.host_str().unwrap())));
+            let host = self.get_header_value("Host").unwrap_or(path_url.host_str().unwrap());
+            headers.push((String::from("Host"), String::from(host)));
             for (key, value) in &self.headers {
                 match key.as_str(){
                     "Host" => {},
+                    "Connection" => {},
                     "Proxy-Connection" => {},
                     _ =>{
                         headers.push((key.clone(), value.clone()));
                     }
                 }
             }
+            headers.push((String::from("Connection"), String::from("close")));
+            headers.push((String::from("Proxy-Connection"), String::from("close")));
             HTTPRequest{
                 method: String::from(&self.method),
                 protocol: String::from("HTTP/1.1"),

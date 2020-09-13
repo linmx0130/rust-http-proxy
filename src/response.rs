@@ -20,9 +20,17 @@ impl HTTPResponse{
 
     fn get_status_description(&self) -> &str{
         match self.status_code {
-            501 => "501 Not Implemented",
-            301 => "301 Moved Permanently",
             200 => "200 OK",
+            301 => "301 Moved Permanently",
+            400 => "400 Bad Request",
+            401 => "401 Unauthorized",
+            403 => "403 Forbidden",
+            404 => "404 Not Found",
+            405 => "405 Method Not Allowed",
+            418 => "418 I'm a teapot",
+            500 => "500 Internal Server Error",
+            501 => "501 Not Implemented",
+            502 => "502 Bad Gateway",
             _ => panic!("Status code {} not supported", self.status_code)
         }
     }
