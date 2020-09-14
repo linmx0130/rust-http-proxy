@@ -1,11 +1,12 @@
-use bytes::{Buf, BytesMut, BufMut};
-use tokio::net::{TcpStream};
+use crate::request::HTTPRequest;
+use crate::response::HTTPResponse;
+use bytes::{Buf, BufMut, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::request::{HTTPRequest};
-use crate::response::{HTTPResponse};
+use tokio::net::TcpStream;
 
-type ChunkedBuffer = [u8;4096];
+type ChunkedBuffer = [u8; 4096];
 
+/// Send the request to its destination and return the response it received.
 pub async fn do_request(request: HTTPRequest) -> Option<HTTPResponse> {
     let host = request.get_header_value("Host").unwrap();
     if let Some(addr) = lookup_an_address(host).await {
@@ -21,7 +22,8 @@ pub async fn do_request(request: HTTPRequest) -> Option<HTTPResponse> {
     }
 }
 
-async fn lookup_an_address(host: &str) -> Option<std::net::SocketAddr>{
+/// Find the address of the host.
+async fn lookup_an_address(host: &str) -> Option<std::net::SocketAddr> {
     let full_host = if let Some(_) = host.find(":") {
         String::from(host)
     } else {
@@ -35,6 +37,7 @@ async fn lookup_an_address(host: &str) -> Option<std::net::SocketAddr>{
     }
 }
 
+/// Read HTTP response from the socket.
 async fn read_http_response(socket: &mut TcpStream) -> Option<HTTPResponse> {
     let mut body_buffer = BytesMut::new();
     loop {
@@ -53,13 +56,14 @@ async fn read_http_response(socket: &mut TcpStream) -> Option<HTTPResponse> {
             if c_size == 0 {
                 break;
             }
-        } else{
+        } else {
             break;
         }
-    };
+    }
     HTTPResponse::parse_message(&body_buffer.to_bytes())
 }
 
+/// Read HTTP request from the socket.
 pub async fn read_http_request(socket: &mut TcpStream) -> Option<HTTPRequest> {
     let mut buffer = BytesMut::new();
     loop {
@@ -83,6 +87,6 @@ pub async fn read_http_request(socket: &mut TcpStream) -> Option<HTTPRequest> {
         } else {
             break;
         }
-    };
+    }
     HTTPRequest::parse_message(&buffer.to_bytes())
 }

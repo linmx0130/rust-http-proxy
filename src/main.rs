@@ -1,9 +1,9 @@
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncWriteExt};
-mod utils;
 mod request;
 mod response;
-use response::{HTTPResponse};
+mod utils;
+use response::HTTPResponse;
 
 #[tokio::main]
 async fn main() {
@@ -20,7 +20,7 @@ async fn main_loop() {
     }
 }
 
-async fn process(mut socket: TcpStream){
+async fn process(mut socket: TcpStream) {
     let http_request = utils::read_http_request(&mut socket).await.unwrap();
     if http_request.path.starts_with("http://") {
         let new_request = http_request.build_request_for_proxy();
@@ -28,8 +28,7 @@ async fn process(mut socket: TcpStream){
             socket.write(&resp.build_message()).await.unwrap();
             println!("Forwarded {}", http_request.path);
         }
-        
-    } else{
+    } else {
         println!("Unknown request: {:?}", http_request);
         send_501_error(&mut socket).await;
     }
@@ -37,7 +36,7 @@ async fn process(mut socket: TcpStream){
 
 async fn send_501_error(socket: &mut TcpStream) {
     let http_response_content = HTTPResponse::create_501_error().build_message();
-    if let Err(err) = socket.write(&http_response_content).await{
+    if let Err(err) = socket.write(&http_response_content).await {
         panic!(err);
     }
 }
