@@ -1,3 +1,4 @@
+use std::env;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 mod request;
@@ -7,11 +8,19 @@ use response::HTTPResponse;
 
 #[tokio::main]
 async fn main() {
-    main_loop().await;
+    let args: Vec<String> = env::args().collect();
+    let port = if args.len() == 1 {
+        8080
+    } else {
+        args.get(1).unwrap().parse::<i32>().unwrap()
+    };
+    let addr = format!("127.0.0.1:{}", port);
+    main_loop(&addr).await;
 }
 
-async fn main_loop() {
-    let mut listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+async fn main_loop(addr: &str) {
+    println!("HTTP Proxy runs at {}", addr);
+    let mut listener = TcpListener::bind(addr).await.unwrap();
     loop {
         let (socket, _) = listener.accept().await.unwrap();
         tokio::spawn(async move {
