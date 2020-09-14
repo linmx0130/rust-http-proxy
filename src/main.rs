@@ -1,5 +1,5 @@
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt};
 mod utils;
 mod request;
 mod response;
@@ -21,9 +21,7 @@ async fn main_loop() {
 }
 
 async fn process(mut socket: TcpStream){
-    let mut buffer: [u8;4096] = [0; 4096];
-    let n = socket.read(&mut buffer[..]).await.unwrap();
-    let http_request = utils::parse_http_request(&buffer, n).unwrap();
+    let http_request = utils::read_http_request(&mut socket).await.unwrap();
     if http_request.path.starts_with("http://") {
         let new_request = http_request.build_request_for_proxy();
         if let Some(resp) = utils::do_request(new_request).await {

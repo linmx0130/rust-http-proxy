@@ -20,6 +20,7 @@ impl HTTPResponse{
 
     fn get_status_description(&self) -> &str{
         match self.status_code {
+            100 => "100 Continue",
             200 => "200 OK",
             301 => "301 Moved Permanently",
             400 => "400 Bad Request",

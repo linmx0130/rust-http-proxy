@@ -1,43 +1,10 @@
-use bytes::{Bytes, Buf, BytesMut, BufMut};
+use bytes::{Buf, BytesMut, BufMut};
 use tokio::net::{TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::request::{HTTPRequest};
 use crate::response::{HTTPResponse};
 
 type ChunkedBuffer = [u8;4096];
-
-pub fn parse_http_request(data: &[u8], n: usize) -> Option<HTTPRequest> { 
-    let bufs = String::from_utf8(data[..n].to_vec()).unwrap();
-    let mut headers = Vec::new();
-    let lines: Vec<&str> = bufs.split("\r\n").collect();
-    if let Some((command, extra)) = lines.split_first(){
-        // offset: the size of command and headers
-        let mut offset = command.len() + 2;
-        // first line: method path protocol
-        let command_split : Vec<&str> = command.split(' ').collect();
-        if let [method, path, protocol] = command_split[..3]{
-            // analyze the headers
-            for line in extra{
-                if let Some(idx) = line.find(": "){
-                    let key = &line[0..idx];
-                    let value = & line[idx+2..];
-                    headers.push((key.to_string(), value.to_string()));
-                    offset += line.len() + 2;
-                }else {
-                    break;
-                }
-            }
-            
-            return Some(HTTPRequest{
-                method: method.to_string(),
-                path: path.to_string(),
-                protocol: protocol.to_string(),
-                headers: headers, 
-                body: Bytes::copy_from_slice(&data[offset+2..n])});
-        }
-    }
-    None
-}
 
 pub async fn do_request(request: HTTPRequest) -> Option<HTTPResponse> {
     let host = request.get_header_value("Host").unwrap();
@@ -91,4 +58,31 @@ async fn read_http_response(socket: &mut TcpStream) -> Option<HTTPResponse> {
         }
     };
     HTTPResponse::parse_message(&body_buffer.to_bytes())
+}
+
+pub async fn read_http_request(socket: &mut TcpStream) -> Option<HTTPRequest> {
+    let mut buffer = BytesMut::new();
+    loop {
+        let mut chuncked_buffer: ChunkedBuffer = [0; 4096];
+        if let Ok(c_size) = socket.read(&mut chuncked_buffer).await {
+            buffer.put(&chuncked_buffer[..c_size]);
+            let req_parsed = HTTPRequest::parse_message(&buffer.clone().to_bytes());
+            if let Some(req) = req_parsed {
+                if let Some(size_str) = &req.get_header_value("Content-Length") {
+                    if size_str.parse::<usize>().unwrap() == req.body.len() {
+                        return Some(req);
+                    }
+                } else {
+                    // no content length found, directly return the valid request
+                    break;
+                }
+            }
+            if c_size == 0 {
+                break;
+            }
+        } else {
+            break;
+        }
+    };
+    HTTPRequest::parse_message(&buffer.to_bytes())
 }

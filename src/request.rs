@@ -65,4 +65,44 @@ impl HTTPRequest {
             }
         }
     }
+    pub fn parse_message(buf: &Bytes) -> Option<Self> { 
+        let mut pointer = 0;
+        let mut last_end = 0;
+        let mut method = String::new();
+        let mut path = String::new();
+        let mut protocol = String::new();
+        let mut headers = Vec::new();
+
+        while pointer + 1 < buf.len() {
+            if buf.get(pointer).unwrap() == &('\r' as u8) && buf.get(pointer+1).unwrap() == &('\n' as u8) {
+                let new_line = String::from_utf8(buf[last_end..pointer].to_vec()).unwrap();
+                last_end = pointer + 2;
+                pointer = pointer + 2;
+                if new_line.ends_with("HTTP/1.1") {
+                    let items: Vec<&str> = new_line.split(' ').collect();
+                    method = String::from(*items.get(0).unwrap());
+                    path = String::from(*items.get(1).unwrap());
+                    protocol = String::from(*items.get(2).unwrap());
+                } else if new_line.len() == 0{
+                    break;
+                } else {
+                    let spliter = new_line.find(": ").unwrap();
+                    let key = String::from(&new_line[..spliter]);
+                    let value = String::from(&new_line[spliter+2..]);
+                    headers.push((key, value));
+                }
+            } else {
+                pointer = pointer + 1;
+            }
+        }
+        if protocol.len() == 0 {
+            return None
+        }
+        Some(HTTPRequest{
+            method: method,
+            path: path,
+            protocol: protocol,
+            headers: headers, 
+            body: Bytes::copy_from_slice(&buf[last_end..])})
+    }
 }
