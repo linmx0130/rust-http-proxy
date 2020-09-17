@@ -31,6 +31,7 @@ impl HTTPResponse {
             100 => "100 Continue",
             200 => "200 OK",
             301 => "301 Moved Permanently",
+            304 => "304 Not Modified",
             400 => "400 Bad Request",
             401 => "401 Unauthorized",
             403 => "403 Forbidden",
@@ -49,7 +50,11 @@ impl HTTPResponse {
         let mut lines: Vec<String> = Vec::new();
         lines.push(format!("HTTP/1.1 {}", self.get_status_description()));
         for (key, value) in &self.headers {
-            lines.push(format!("{}: {}", key, value));
+            if key == "Connection" {
+                lines.push(String::from("Connection: close"));
+            } else {
+                lines.push(format!("{}: {}", key, value));
+            }
         }
         lines.join("\r\n").to_string()
     }

@@ -37,6 +37,15 @@ async fn process(mut socket: TcpStream) {
             socket.write(&resp.build_message()).await.unwrap();
             println!("Forwarded {}", http_request.path);
         }
+    } else if http_request.method == "CONNECT" {
+        if let Some(_host) = http_request.get_header_value("Host") {
+            let ret = utils::do_connect_request(http_request, &mut socket).await;
+            if let Some(addr) = ret {
+                println!("Forwarded {}", addr);
+            } else {
+                println!("An unknown HTTPS request");
+            }
+        }
     } else {
         println!("Unknown request: {:?}", http_request);
         send_501_error(&mut socket).await;

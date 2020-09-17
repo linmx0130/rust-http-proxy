@@ -37,7 +37,13 @@ impl HTTPRequest {
         let command_line = format!("{} {} {}\r\n", self.method, self.path, self.protocol);
         ret.push_str(&command_line);
         for (key, value) in &self.headers {
-            ret.push_str(&format!("{}: {}\r\n", key, value))
+            match key.as_str() {
+                "Connection" => ret.push_str("Connection: close\r\n"),
+                "Proxy-Connection" => {}
+                _ => {
+                    ret.push_str(&format!("{}: {}\r\n", key, value));
+                }
+            }
         }
         ret.push_str("\r\n");
         Bytes::from(ret)
@@ -108,10 +114,13 @@ impl HTTPRequest {
                 } else if new_line.len() == 0 {
                     break;
                 } else {
-                    let spliter = new_line.find(": ").unwrap();
-                    let key = String::from(&new_line[..spliter]);
-                    let value = String::from(&new_line[spliter + 2..]);
-                    headers.push((key, value));
+                    if let Some(spliter) = new_line.find(": ") {
+                        let key = String::from(&new_line[..spliter]);
+                        let value = String::from(&new_line[spliter + 2..]);
+                        headers.push((key, value));
+                    } else {
+                        return None;
+                    }
                 }
             } else {
                 pointer = pointer + 1;

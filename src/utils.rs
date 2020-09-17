@@ -1,8 +1,12 @@
 use crate::request::HTTPRequest;
 use crate::response::HTTPResponse;
 use bytes::{Buf, BufMut, BytesMut};
+use native_tls;
+use native_tls::Identity;
+use native_tls::TlsConnector;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_native_tls::TlsAcceptor;
 
 type ChunkedBuffer = [u8; 4096];
 
@@ -38,7 +42,10 @@ async fn lookup_an_address(host: &str) -> Option<std::net::SocketAddr> {
 }
 
 /// Read HTTP response from the socket.
-async fn read_http_response(socket: &mut TcpStream) -> Option<HTTPResponse> {
+async fn read_http_response<Stream>(socket: &mut Stream) -> Option<HTTPResponse>
+where
+    Stream: tokio::io::AsyncRead + std::marker::Unpin,
+{
     let mut body_buffer = BytesMut::new();
     loop {
         let mut buffer: ChunkedBuffer = [0; 4096];
@@ -64,7 +71,10 @@ async fn read_http_response(socket: &mut TcpStream) -> Option<HTTPResponse> {
 }
 
 /// Read HTTP request from the socket.
-pub async fn read_http_request(socket: &mut TcpStream) -> Option<HTTPRequest> {
+pub async fn read_http_request<Stream>(socket: &mut Stream) -> Option<HTTPRequest>
+where
+    Stream: tokio::io::AsyncRead + std::marker::Unpin,
+{
     let mut buffer = BytesMut::new();
     loop {
         let mut chuncked_buffer: ChunkedBuffer = [0; 4096];
@@ -88,5 +98,42 @@ pub async fn read_http_request(socket: &mut TcpStream) -> Option<HTTPRequest> {
             break;
         }
     }
+
     HTTPRequest::parse_message(&buffer.to_bytes())
+}
+
+/// connect request: HTTPS requests
+pub async fn do_connect_request(req: HTTPRequest, client_socket: &mut TcpStream) -> Option<String> {
+    // return 200 OK to get the real request
+    client_socket
+        .write(b"HTTP/1.1 200 OK\r\n\r\n")
+        .await
+        .unwrap();
+    // TLS acceptor initialization
+    let der = include_bytes!("keyStore.p12");
+    let cert = Identity::from_pkcs12(der, "foobar").unwrap();
+    let tls_acceptor = TlsAcceptor::from(native_tls::TlsAcceptor::builder(cert).build().unwrap());
+    let mut tls_stream = tls_acceptor
+        .accept(client_socket)
+        .await
+        .expect("TLS accept error");
+
+    // the real request for sending to the target server
+    let real_req_option = read_http_request(&mut tls_stream).await;
+    if let Some(real_req) = real_req_option {
+        let addr_str = req.get_header_value("Host").unwrap();
+        let addr = lookup_an_address(addr_str).await.unwrap();
+        let socket = TcpStream::connect(&addr).await.unwrap();
+        let cx = tokio_native_tls::TlsConnector::from(TlsConnector::builder().build().unwrap());
+        let target_domain = real_req.get_header_value("Host").unwrap();
+
+        let mut socket = cx.connect(target_domain, socket).await.unwrap();
+        socket.write(&real_req.build_message()).await.unwrap();
+        let resp = read_http_response(&mut socket).await.unwrap();
+        let mut msg = resp.build_message();
+        tls_stream.write(&msg.to_bytes()).await.unwrap();
+        Some(format!("https://{}{}", target_domain, real_req.path))
+    } else {
+        None
+    }
 }
